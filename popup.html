@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>One Tab Audio</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header>
+      <h1>One Tab Audio</h1>
+      <p>Inoltra l'audio di una tab. Le altre restano sull'uscita di sistema.</p>
+    </header>
+
+    <section class="device" aria-labelledby="device-label">
+      <div class="device-heading">
+        <label id="device-label" for="device">Uscita</label>
+        <button id="pick" type="button">Uscite</button>
+      </div>
+      <select id="device">
+        <option value="">Carico i dispositivi…</option>
+      </select>
+      <p id="device-hint" class="hint">Premi Uscite per cercare di nuovo, anche se il menu ne ha già. Si apre una scheda e il microfono si spegne subito.</p>
+    </section>
+
+    <section class="volume" aria-label="Volume dell'audio inoltrato">
+      <div class="device-heading">
+        <label for="volume">Volume inoltrato</label>
+        <span id="volume-value">100%</span>
+      </div>
+      <div class="volume-row">
+        <input id="volume" type="range" min="0" max="150" step="1" value="100" aria-valuemin="0" aria-valuemax="150">
+        <button id="mute-out" type="button" aria-pressed="false">Silenzia</button>
+      </div>
+      <p class="hint">I tasti del Mac regolano gli speaker. Questo cursore regola solo l'audio mandato all'Echo; per le tab con video sincronizzato usa il volume del player.</p>
+    </section>
+
+    <div class="toolbar">
+      <label class="check">
+        <input id="show-all" type="checkbox">
+        Mostra tutte le tab
+      </label>
+      <button id="reload" type="button">Aggiorna</button>
+      <button id="stop-all" type="button" hidden>Ripristina tutte</button>
+    </div>
+
+    <p id="error" role="alert" hidden></p>
+    <ul id="tabs">
+      <li class="empty">Cerco le tab…</li>
+    </ul>
+
+    <footer>
+      <p>Puoi chiudere questo pannello: l'inoltro resta attivo.</p>
+      <p>Sui siti video Chrome chiede una volta il microfono: serve solo a vedere l'Echo e tenere il video in sync. Il microfono si spegne subito.</p>
+    </footer>
+    <script src="popup.js"></script>
+  </body>
+</html>

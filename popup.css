@@ -1,0 +1,307 @@
+:root {
+  color-scheme: dark;
+  --bg: #10141a;
+  --surface: #181e27;
+  --surface-routed: #14211f;
+  --line: #2c3846;
+  --text: #edf2f7;
+  --muted: #93a1b0;
+  --accent: #1f8f86;
+  --accent-strong: #2fbfa8;
+  --danger: #f0b4b4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 380px;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+header,
+.device,
+.volume,
+.toolbar,
+footer {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+header {
+  padding-top: 14px;
+  padding-bottom: 10px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+header p,
+footer p,
+.meta,
+.empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+header p {
+  margin-top: 4px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.device,
+.volume {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 10px;
+}
+
+.volume-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#volume-value {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+input[type='range'] {
+  flex: 1;
+  width: 100%;
+  accent-color: var(--accent-strong);
+}
+
+#mute-out[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.device-heading,
+.toolbar,
+.actions,
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-heading {
+  justify-content: space-between;
+}
+
+label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+select,
+button {
+  font: inherit;
+  color: var(--text);
+}
+
+select {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.toolbar {
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-weight: 500;
+  color: var(--text);
+}
+
+button {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: #f4fffd;
+}
+
+button.primary:hover,
+#pick:hover,
+#reload:hover,
+#stop-all:hover,
+button.ghost:hover {
+  border-color: var(--accent-strong);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#error {
+  margin: 0 14px 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #3a2224;
+  color: var(--danger);
+}
+
+#tabs {
+  max-height: 390px;
+  margin: 0;
+  padding: 0 10px 8px;
+  overflow: auto;
+  list-style: none;
+}
+
+#tabs::-webkit-scrollbar {
+  width: 8px;
+}
+
+#tabs::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: #2c3846;
+}
+
+.tab {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.tab.actionable {
+  cursor: pointer;
+}
+
+.tab.actionable:hover {
+  border-color: var(--line);
+}
+
+.tab.routed {
+  border-color: var(--accent);
+  background: var(--surface-routed);
+}
+
+.tab-body {
+  min-width: 0;
+}
+
+.icon {
+  position: relative;
+  width: 28px;
+  height: 28px;
+}
+
+.icon img,
+.letter {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.icon img {
+  position: absolute;
+  inset: 0;
+  object-fit: cover;
+  background: #10141a;
+}
+
+.letter {
+  display: grid;
+  place-items: center;
+  background: #243140;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+button.playback {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 8px;
+}
+
+.meta {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.tab.routed .meta {
+  color: var(--accent-strong);
+}
+
+.actions {
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.actions button.forward {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 18px 8px 12px;
+  text-align: center;
+}
+
+footer {
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+
+footer p + p {
+  margin-top: 4px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}

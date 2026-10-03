@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <title>Nomi altoparlanti</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 28px;
+        background: #10141a;
+        color: #edf2f7;
+        font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      h1 { margin: 0; font-size: 20px; }
+      p { max-width: 460px; color: #93a1b0; }
+      button {
+        height: 40px;
+        margin-top: 8px;
+        padding: 0 16px;
+        border: 0;
+        border-radius: 8px;
+        background: #1f8f86;
+        color: #f4fffd;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      #status { min-height: 1.45em; }
+      #status.ready { color: #2fbfa8; }
+    </style>
+  </head>
+  <body>
+    <h1>Nomi degli altoparlanti</h1>
+    <p>Qui puoi ripetere la ricerca quando colleghi un altro altoparlante. Il microfono si spegne subito: non viene registrato nulla.</p>
+    <button id="allow" type="button">Cerca di nuovo</button>
+    <p id="status"></p>
+    <script src="mic.js"></script>
+  </body>
+</html>
