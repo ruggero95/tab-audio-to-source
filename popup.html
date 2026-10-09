@@ -32,7 +32,7 @@
         <input id="volume" type="range" min="0" max="150" step="1" value="100" aria-valuemin="0" aria-valuemax="150">
         <button id="mute-out" type="button" aria-pressed="false">Silenzia</button>
       </div>
-      <p class="hint">I tasti del Mac regolano gli speaker. Questo cursore regola solo l'audio mandato all'Echo; per le tab con video sincronizzato usa il volume del player.</p>
+      <p id="volume-hint" class="hint">Volume e Silenzia regolano gli inoltri. Controlla anche il volume del sito e dell’altoparlante.</p>
     </section>
 
     <div class="toolbar">
@@ -41,7 +41,7 @@
         Mostra tutte le tab
       </label>
       <button id="reload" type="button">Aggiorna</button>
-      <button id="stop-all" type="button" hidden>Ripristina tutte</button>
+      <button id="stop-all" type="button">Ripristina tutte</button>
     </div>
 
     <p id="error" role="alert" hidden></p>

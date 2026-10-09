@@ -19,7 +19,7 @@ Il dispositivo deve essere già collegato al computer e riconosciuto come uscita
 - Un dispositivo audio visibile al sistema operativo: altoparlanti, cuffie, uscita USB o dispositivo Bluetooth.
 - Autorizzazione al microfono quando richiesta da Chrome, per rendere disponibili i nomi e le uscite audio. Su macOS potrebbe essere necessaria anche l’autorizzazione di sistema per Chrome.
 
-Il progetto usa HTML, CSS e JavaScript senza dipendenze esterne. Non richiede `npm install`, un server o una compilazione. Node.js serve soltanto per i controlli di sintassi descritti sotto. La compatibilità con altri browser non è verificata.
+Il progetto usa HTML, CSS e JavaScript senza dipendenze esterne. Non richiede `npm install`, un server o una compilazione. Node.js serve soltanto per i controlli di sintassi e i test descritti sotto. La compatibilità con altri browser non è verificata.
 
 ## Installazione locale
 
@@ -44,7 +44,7 @@ Per lavorare su pagine `file://`, abilita anche **Consenti accesso agli URL dei 
 
 Per cambiare uscita, seleziona un altro dispositivo e premi **Sposta a …** sulla scheda già inoltrata. Il solo cambio del menu non sposta gli inoltri esistenti.
 
-**Ripristina** riporta una scheda all’uscita di sistema; **Ripristina tutte** interrompe tutti gli inoltri. **Play** e **Pausa** controllano gli elementi audio/video rilevati nella pagina; i player personalizzati potrebbero richiedere i comandi del sito.
+**Ripristina** riporta una scheda all’uscita di sistema e può annullare anche un collegamento in corso. **Ripristina tutte** resta sempre disponibile e interrompe tutti gli inoltri, chiudendo anche il player nascosto in caso di blocco. Se l’avvio della cattura non si completa entro 12 secondi, l’estensione interrompe il tentativo e libera l’audio della scheda. **Play** e **Pausa** controllano gli elementi audio/video rilevati nella pagina; i player personalizzati potrebbero richiedere i comandi del sito.
 
 ## Come funziona l’audio
 
@@ -52,10 +52,10 @@ L’estensione prova due modalità, in questo ordine:
 
 | Modalità | Funzionamento | Volume e sincronizzazione |
 | --- | --- | --- |
-| Uscita diretta (`direct`) | Imposta `HTMLMediaElement.setSinkId()` sugli elementi `<audio>` e `<video>` della pagina principale e segue quelli che iniziano a riprodurre. | Lascia al player e a Chrome la gestione dell’audio/video. Nel pannello compare **video sincronizzato**; usa il volume del player. |
+| Uscita diretta (`direct`) | Imposta `HTMLMediaElement.setSinkId()` sugli elementi `<audio>` e `<video>` della pagina principale e segue quelli che iniziano a riprodurre. | Lascia a Chrome la sincronizzazione audio/video. Nel pannello compare **video sincronizzato**; volume e silenziamento agiscono sul player della pagina fino al 100%, e Ripristina restituisce le impostazioni originali. |
 | Cattura (`capture`) | Cattura l’audio della scheda con `chrome.tabCapture` e lo riproduce da `offscreen.html` tramite Web Audio, con un elemento audio come alternativa. | Il cursore **Volume inoltrato** e **Silenzia** agiscono su tutti gli inoltri in questa modalità. La cattura può introdurre ritardo rispetto al video. |
 
-Il volume della cattura va da **0% a 150%**; oltre il 100% il segnale viene amplificato e può distorcere. Questi controlli non regolano le schede in modalità diretta. I tasti volume del computer agiscono sull’uscita gestita dal sistema operativo.
+Il volume della cattura va da **0% a 150%**; oltre il 100% il segnale viene amplificato e può distorcere. Volume e **Silenzia** regolano anche le schede in modalità diretta; il player HTML arriva al 100%, quindi il cursore si ferma al 100% quando sono presenti solo inoltri diretti. Con modalità miste, valori superiori al 100% amplificano soltanto le catture. I tasti volume del computer agiscono sull’uscita gestita dal sistema operativo.
 
 In modalità diretta l’uscita viene individuata nella pagina tramite il nome del dispositivo, perché gli identificativi possono differire tra origini. Chrome può chiedere il permesso del microfono anche sul sito. Se il percorso diretto non è disponibile, l’estensione tenta la cattura.
 
@@ -106,7 +106,7 @@ node --check mic.js
 
 Per vedere gli errori del service worker, usa il collegamento **Service worker** nei dettagli dell’estensione. Per il pannello, apri il popup e usa **Ispeziona** dal menu contestuale.
 
-La verifica statica della configurazione comprende manifest JSON, presenza delle risorse, dimensioni delle icone e corrispondenza fra riferimenti HTML e selettori JavaScript. Non è presente una suite di test automatizzata. Per verificare il comportamento reale in Chrome:
+La verifica statica della configurazione comprende manifest JSON, presenza delle risorse, dimensioni delle icone e corrispondenza fra riferimenti HTML e selettori JavaScript. I test di regressione simulano catture, uscite bloccate, timeout, annullamenti e risposte tardive con le API audio e Chrome sostituite da mock. Eseguili con `node --test tests/routing.test.cjs`. Per verificare il comportamento reale in Chrome:
 
 1. Inoltra una scheda con un player HTML a un dispositivo e verifica che un’altra scheda resti sull’uscita di sistema.
 2. Verifica play/pausa, cambio uscita e ripristino della singola scheda.
@@ -118,10 +118,11 @@ La resa audio e la sincronizzazione richiedono una prova con il dispositivo real
 
 ## Limiti e risoluzione dei problemi
 
+- **Compare il simbolo di cattura ma non senti audio:** il simbolo indica la cattura, mentre il player potrebbe essere ancora in avvio. Premi **Ripristina** per annullare; se lo stato non compare nel pannello, usa **Ripristina tutte** per chiudere il player e liberare le catture. Poi controlla l’uscita scelta e riprova.
 - **Il dispositivo non compare:** verifica il collegamento nel sistema operativo, premi **Uscite** e concedi il permesso al microfono. Se necessario, riavvia Chrome con il dispositivo già connesso. L’elenco include anche nomi memorizzati: una voce presente non garantisce che il dispositivo sia ancora collegato.
 - **Chrome blocca la cattura:** porta in primo piano la scheda interessata, apri da lì l’estensione e riprova. Attivare una scheda dal pannello non equivale a invocare l’estensione su quella scheda; `tabCapture` richiede il relativo accesso `activeTab`. Vedi [le condizioni di cattura](https://developer.chrome.com/docs/extensions/reference/api/tabCapture).
 - **La scheda è silenziata manualmente:** riattiva l’audio nel browser prima di inoltrarla. L’estensione preserva il silenziamento imposto dall’utente durante il ripristino.
-- **Il cursore non modifica il volume:** se compare **video sincronizzato**, usa il volume del player nella pagina; anche **Silenzia** vale solo per la cattura.
+- **L’audio è molto basso:** alza il cursore nel pannello e controlla il volume dell’altoparlante. In modalità cattura controlla anche il volume del sito, che può abbassare il segnale prima dell’inoltro. Volume e **Silenzia** funzionano anche con **video sincronizzato**; in questo caso 100% è il massimo del player della pagina.
 - **Audio e video sono fuori sincrono:** il percorso di cattura e i dispositivi Bluetooth possono introdurre latenza. La modalità diretta evita il passaggio attraverso il player offscreen, ma non garantisce la sincronizzazione su ogni sito o dispositivo.
 - **Il player non viene controllato:** play/pausa cerca elementi HTML audio/video, anche nei frame accessibili. Il percorso diretto opera solo sul frame principale; player in iframe, shadow DOM o basati esclusivamente su Web Audio possono richiedere la cattura o i comandi del sito.
 - **La pagina non è compatibile:** le pagine interne di Chrome e le pagine protette dalle restrizioni del browser non sono controllabili. I contenuti protetti possono avere ulteriori limitazioni.

@@ -3,6 +3,8 @@ const SHOW_ALL_KEY = 'showAll';
 const deviceSelect = document.querySelector('#device');
 const volumeInput = document.querySelector('#volume');
 const volumeValue = document.querySelector('#volume-value');
+const volumeHint = document.querySelector('#volume-hint');
+let requestedVolumePercent = 100;
 const muteOutButton = document.querySelector('#mute-out');
 const pickButton = document.querySelector('#pick');
 const showAllInput = document.querySelector('#show-all');
@@ -15,6 +17,8 @@ const state = {
   tabs: [],
   routes: new Map(),
   synced: new Set(),
+  starting: new Set(),
+  operation: 0,
   currentWindowId: null,
   busy: false,
   showAll: localStorage.getItem(SHOW_ALL_KEY) === '1',
@@ -62,8 +66,7 @@ reloadButton.addEventListener('click', () => {
 });
 
 stopAllButton.addEventListener('click', () => {
-  if (state.busy) return;
-  void run(() => callBackground({ type: 'stop-all' }));
+  void run((operation) => callBackground({ type: 'stop-all' }, operation), { interrupt: true });
 });
 
 chrome.runtime.onMessage.addListener((message) => {
@@ -128,6 +131,7 @@ async function loadRoutes() {
 function setRoutes(routes) {
   state.routes = new Map(routes.map((route) => [route.tabId, route.deviceId]));
   state.synced = new Set(routes.filter((route) => route.mode === 'direct').map((route) => route.tabId));
+  state.starting = new Set(routes.filter((route) => route.state === 'starting').map((route) => route.tabId));
 }
 
 async function loadDevices() {
@@ -184,7 +188,11 @@ async function refreshOutputs() {
 }
 
 function showVolume(percent) {
-  const value = Math.min(150, Math.max(0, Math.round(percent)));
+  requestedVolumePercent = Math.min(150, Math.max(0, Math.round(percent)));
+  const max = state.routes.size > 0 && state.synced.size === state.routes.size ? 100 : 150;
+  const value = Math.min(max, requestedVolumePercent);
+  volumeInput.max = String(max);
+  volumeInput.setAttribute('aria-valuemax', String(max));
   volumeInput.value = String(value);
   volumeValue.textContent = `${value}%`;
   volumeInput.setAttribute('aria-valuenow', String(value));
@@ -195,12 +203,13 @@ function forwardedMuted() {
 }
 
 async function persistLevels() {
-  const volume = Number(volumeInput.value) / 100;
+  requestedVolumePercent = Number(volumeInput.value);
+  const volume = requestedVolumePercent / 100;
   const muted = forwardedMuted();
   if (chrome.storage?.local) {
     await chrome.storage.local.set({ outputVolume: volume, outputMuted: muted });
   }
-  chrome.runtime.sendMessage({ target: 'offscreen', type: 'volume', volume, muted }).catch(() => {});
+  await callBackground({ type: 'volume', volume, muted }).catch((error) => showError(humanize(error.message)));
 }
 
 function mergeOutputs(live, stored) {
@@ -245,15 +254,19 @@ function outputLabel(device) {
 }
 
 function render() {
+  showVolume(requestedVolumePercent);
+  volumeHint.textContent = state.routes.size > 0 && state.synced.size === state.routes.size
+    ? 'Volume e Silenzia regolano il player della pagina. Per più volume alza anche l’altoparlante.'
+    : 'Volume e Silenzia regolano gli inoltri. Sopra il 100% si amplificano solo le catture; i player video arrivano al 100%. Controlla anche il volume del sito e dell’altoparlante.';
   const scroll = tabList.scrollTop;
   const selectedDevice = deviceSelect.value;
   const visible = state.tabs
     .filter((tab) => state.showAll || tab.audible || state.routes.has(tab.id))
     .sort(compareTabs);
 
-  stopAllButton.hidden = state.routes.size === 0;
+  stopAllButton.hidden = false;
   reloadButton.disabled = state.busy;
-  stopAllButton.disabled = state.busy;
+  stopAllButton.disabled = false;
   deviceSelect.disabled = state.busy;
 
   if (visible.length === 0) {
@@ -273,7 +286,8 @@ function render() {
 function renderTab(tab, selectedDevice) {
   const routedTo = state.routes.get(tab.id) || '';
   const userMuted = tab.mutedInfo?.muted && tab.mutedInfo.reason === 'user';
-  const canForward = !userMuted && (!selectedDevice || routedTo !== selectedDevice);
+  const starting = state.starting.has(tab.id);
+  const canForward = !starting && !userMuted && (!selectedDevice || routedTo !== selectedDevice);
   const row = document.createElement('li');
   row.className = routedTo ? 'tab routed' : 'tab';
   if (canForward || userMuted) row.classList.add('actionable');
@@ -331,7 +345,7 @@ function renderTab(tab, selectedDevice) {
     actions.append(actionButton('Audio silenziato', 'ghost', () => {
       showError('Questa tab è silenziata. Riattiva l\'audio e riprova.');
     }));
-  } else if (!selectedDevice || routedTo !== selectedDevice) {
+  } else if (!starting && (!selectedDevice || routedTo !== selectedDevice)) {
     const moving = Boolean(routedTo) && Boolean(selectedDevice);
     const label = selectedDevice
       ? `${moving ? 'Sposta' : 'Inoltra'} a ${deviceLabel(selectedDevice)}`
@@ -343,9 +357,8 @@ function renderTab(tab, selectedDevice) {
 
   if (routedTo) {
     actions.append(actionButton('Ripristina', 'ghost', () => {
-      if (state.busy) return;
-      void run(() => callBackground({ type: 'stop-route', tabId: tab.id }));
-    }));
+      void run((operation) => callBackground({ type: 'stop-route', tabId: tab.id }, operation), { interrupt: true });
+    }, { lock: false }));
   }
 
   body.append(titleRow, meta);
@@ -363,10 +376,12 @@ function forwardTab(tab) {
   }
 
   if (state.routes.has(tab.id)) {
-    void run(() => callBackground({ type: 'move-route', tabId: tab.id, deviceId }));
+    void run((operation) => callBackground({ type: 'move-route', tabId: tab.id, deviceId }, operation));
     return;
   }
-  void run(() => callBackground({ type: 'start-route', tabId: tab.id, deviceId }));
+  state.routes.set(tab.id, deviceId);
+  state.starting.add(tab.id);
+  void run((operation) => callBackground({ type: 'start-route', tabId: tab.id, deviceId }, operation));
 }
 
 function actionButton(label, className, onClick, { lock = true } = {}) {
@@ -385,6 +400,7 @@ function describeTab(tab, routedTo, userMuted) {
   if (site) parts.push(site);
   if (tab.windowId !== state.currentWindowId) parts.push('altra finestra');
   if (userMuted) parts.push('silenziata');
+  else if (state.starting.has(tab.id)) parts.push(`collegamento in corso · ${deviceLabel(routedTo)}`);
   else if (routedTo) parts.push(`inoltrato · ${deviceLabel(routedTo)}`);
   if (routedTo && state.synced.has(tab.id)) parts.push('video sincronizzato');
   parts.push(isPlaying(tab) ? 'in riproduzione' : 'in pausa');
@@ -513,31 +529,40 @@ function compareTabs(a, b) {
   return (a.title || '').localeCompare(b.title || '', 'it');
 }
 
-async function run(task) {
-  if (state.busy) return;
+async function run(task, { interrupt = false } = {}) {
+  if (state.busy && !interrupt) return;
+  const operation = ++state.operation;
   state.busy = true;
   clearError();
   render();
   try {
-    await task();
+    await task(operation);
+    if (operation !== state.operation) return;
     const listed = await chrome.tabs.query({});
+    if (operation !== state.operation) return;
     state.tabs = listed.filter((tab) => capturableUrl(tab.url || ''));
     reconcilePlayback();
   } catch (error) {
-    showError(humanize(error.message));
+    if (operation === state.operation) {
+      await loadRoutes();
+      if (operation === state.operation) showError(humanize(error.message));
+    }
   } finally {
-    state.busy = false;
-    render();
+    if (operation === state.operation) {
+      state.busy = false;
+      render();
+    }
   }
 }
 
-async function callBackground(message) {
+async function callBackground(message, operation) {
   let response;
   try {
     response = await chrome.runtime.sendMessage({ target: 'background', ...message });
   } catch (error) {
     throw new Error(humanize(error.message));
   }
+  if (operation !== undefined && operation !== state.operation) return response;
   if (!response?.ok) throw new Error(humanize(response?.error || 'Operazione non riuscita'));
   if (Array.isArray(response.routes)) setRoutes(response.routes);
   return response;

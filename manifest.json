@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "One Tab Audio",
-  "version": "1.5.0",
+  "version": "1.5.2",
   "minimum_chrome_version": "116",
   "description": "Inoltra l'audio di una tab a un dispositivo di uscita scelto.",
   "permissions": ["tabCapture", "tabs", "offscreen", "activeTab", "storage", "scripting"],

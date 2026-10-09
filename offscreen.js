@@ -1,4 +1,5 @@
 const routes = new Map();
+const START_TIMEOUT_MS = 12000;
 let outputVolume = 1;
 let outputMuted = false;
 
@@ -54,52 +55,87 @@ async function startRoute({ tabId, streamId, deviceId, volume, muted }) {
     throw new Error('Scegli un dispositivo di uscita.');
   }
 
-  await stopRoute(tabId);
+  stopRoute(tabId);
 
-  let stream;
-  let playback;
+  // Own the capture before awaiting the device: Stop must also reach unfinished starts.
+  const route = { deviceId, state: 'starting', controller: new AbortController() };
+  routes.set(tabId, route);
+  const timer = setTimeout(() => route.controller.abort(
+    new Error('L’uscita audio non risponde. Inoltro interrotto: riprova.')
+  ), START_TIMEOUT_MS);
+  notifyRoutes();
+  // Apply the start snapshot before any wait; later volume messages take precedence.
+  rememberLevels(volume, muted);
   try {
-    stream = await captureStream(streamId);
-    rememberLevels(volume, muted);
-    playback = await openPlayback(stream, deviceId);
-    const track = stream.getAudioTracks()[0];
-    if (!track) throw new Error('Questa tab non ha una traccia audio.');
-    track.addEventListener('ended', () => {
-      const current = routes.get(tabId);
-      if (current?.stream === stream) void stopRoute(tabId, { notify: true });
+    route.stream = await waitFor(captureStream(streamId), route, (stream) => {
+      stream.getTracks().forEach((track) => track.stop());
     });
-    playback.stream = stream;
-    routes.set(tabId, playback);
-    chrome.runtime.sendMessage({ target: 'background', type: 'mute-tab', tabId }).catch(() => {});
+    const track = route.stream.getAudioTracks()[0];
+    if (!track || track.readyState === 'ended') throw new Error('Questa tab non ha una traccia audio.');
+    track.addEventListener('ended', () => {
+      if (routes.get(tabId) === route) void stopRoute(tabId, { notify: true });
+    });
+    Object.assign(route, await openPlayback(route.stream, deviceId, route));
+    route.controller.signal.throwIfAborted();
+    route.gain.gain.value = heardGain();
+    route.state = 'active';
+    // tabCapture already suppresses the original audio; an extra tabs.update(muted)
+    // can race with Stop and leave the page permanently silent.
+    notifyRoutes();
   } catch (error) {
-    releasePlayback(playback, stream);
+    if (routes.get(tabId) === route) routes.delete(tabId);
+    route.controller.abort(error);
+    releasePlayback(route, route.stream);
+    notifyRoutes();
     throw sinkError(error);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-async function openPlayback(stream, deviceId) {
+// Media APIs cannot always be cancelled. Release a stream arriving after Stop/timeout.
+function waitFor(promise, route, releaseLate) {
+  const signal = route.controller.signal;
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason);
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+    Promise.resolve(promise).then((value) => {
+      signal.removeEventListener('abort', abort);
+      if (signal.aborted) releaseLate?.(value);
+      else resolve(value);
+    }, (error) => {
+      signal.removeEventListener('abort', abort);
+      reject(error);
+    });
+  });
+}
+
+async function openPlayback(stream, deviceId, route) {
   try {
-    return await openDirectPlayback(stream, deviceId);
+    return await openDirectPlayback(stream, deviceId, route);
   } catch (error) {
+    route.controller.signal.throwIfAborted();
     console.warn('Uscita diretta non disponibile, uso il percorso compatibile.', error);
-    return openElementPlayback(stream, deviceId);
+    return openElementPlayback(stream, deviceId, route);
   }
 }
 
-async function openDirectPlayback(stream, deviceId) {
+async function openDirectPlayback(stream, deviceId, route) {
   if (typeof AudioContext.prototype.setSinkId !== 'function') {
     throw new Error('setSinkId non supportato');
   }
 
   try {
-    return await startDirect(stream, deviceId, true);
+    return await startDirect(stream, deviceId, true, route);
   } catch (error) {
+    route.controller.signal.throwIfAborted();
     if (error?.name === 'NotFoundError') throw error;
-    return startDirect(stream, deviceId, false);
+    return startDirect(stream, deviceId, false, route);
   }
 }
 
-async function startDirect(stream, deviceId, bindSink) {
+async function startDirect(stream, deviceId, bindSink, route) {
   const context = bindSink
     ? new AudioContext({ latencyHint: 0, sinkId: deviceId })
     : new AudioContext({ latencyHint: 0 });
@@ -109,47 +145,45 @@ async function startDirect(stream, deviceId, bindSink) {
     if (context.state === 'suspended') void context.resume().catch(() => {});
   };
   try {
-    if (context.sinkId !== deviceId) await context.setSinkId(deviceId);
+    if (context.sinkId !== deviceId) await waitFor(context.setSinkId(deviceId), route);
     source = context.createMediaStreamSource(stream);
     gain = context.createGain();
     gain.gain.value = heardGain();
     source.connect(gain);
     gain.connect(context.destination);
     context.addEventListener('statechange', resume);
-    resume();
+    if (context.state !== 'running') await waitFor(context.resume(), route);
+    if (context.state !== 'running') throw new Error('Il player audio non si è avviato. Riprova.');
     return { deviceId, context, source, gain, resume };
   } catch (error) {
     context.removeEventListener('statechange', resume);
     disconnectNodes(source, gain);
-    await context.close().catch(() => {});
+    void context.close().catch(() => {});
     throw error;
   }
 }
 
-async function openElementPlayback(stream, deviceId) {
+async function openElementPlayback(stream, deviceId, route) {
   const context = new AudioContext({ latencyHint: 'interactive' });
-  const source = context.createMediaStreamSource(stream);
-  const gain = context.createGain();
-  const destination = context.createMediaStreamDestination();
-  gain.gain.value = heardGain();
-  source.connect(gain);
-  gain.connect(destination);
-
-  const audio = new Audio();
-  audio.srcObject = destination.stream;
-  audio.hidden = true;
-  document.body.append(audio);
+  let source, gain, destination, audio;
   try {
-    await audio.setSinkId(deviceId);
-    await audio.play();
-    if (context.state === 'suspended') await context.resume();
-    return { deviceId, audio, context, source, gain };
+    source = context.createMediaStreamSource(stream);
+    gain = context.createGain();
+    destination = context.createMediaStreamDestination();
+    gain.gain.value = heardGain();
+    source.connect(gain);
+    gain.connect(destination);
+    audio = new Audio();
+    audio.srcObject = destination.stream;
+    audio.hidden = true;
+    document.body.append(audio);
+    await waitFor(audio.setSinkId(deviceId), route);
+    await waitFor(audio.play(), route);
+    if (context.state !== 'running') await waitFor(context.resume(), route);
+    if (context.state !== 'running') throw new Error('Il player audio non si è avviato. Riprova.');
+    return { deviceId, audio, context, source, gain, destination };
   } catch (error) {
-    audio.pause();
-    audio.srcObject = null;
-    audio.remove();
-    disconnectNodes(source, gain);
-    await context.close().catch(() => {});
+    releasePlayback({ audio, context, source, gain, destination });
     throw error;
   }
 }
@@ -188,6 +222,7 @@ async function outputDevices() {
 async function moveRoute({ tabId, deviceId }) {
   const route = routes.get(tabId);
   if (!route) throw new Error('Questa tab non è inoltrata.');
+  if (route.state === 'starting') throw new Error('Inoltro in avvio. Premi Ripristina per annullarlo.');
   if (typeof deviceId !== 'string' || deviceId.length === 0) {
     throw new Error('Scegli un dispositivo di uscita.');
   }
@@ -200,16 +235,11 @@ async function stopRoute(tabId, { notify = false } = {}) {
   const route = routes.get(tabId);
   if (!route) return;
   routes.delete(tabId);
+  route.controller.abort(new Error('Inoltro annullato.'));
   releasePlayback(route, route.stream);
   chrome.runtime.sendMessage({ target: 'background', type: 'unmute-tab', tabId }).catch(() => {});
 
-  if (notify) {
-    chrome.runtime.sendMessage({
-      target: 'background',
-      type: 'routes-changed',
-      routes: currentRoutes()
-    }).catch(() => {});
-  }
+  if (notify) notifyRoutes();
 }
 
 function releasePlayback(playback, stream) {
@@ -221,6 +251,7 @@ function releasePlayback(playback, stream) {
     playback.audio.remove();
   }
   void playback?.context?.close().catch(() => {});
+  playback?.destination?.stream.getTracks().forEach((track) => track.stop());
   stream?.getTracks().forEach((track) => track.stop());
 }
 
@@ -269,10 +300,17 @@ function sinkError(error) {
 function currentRoutes() {
   return [...routes.entries()].map(([tabId, route]) => ({
     tabId,
-    deviceId: route.deviceId
+    deviceId: route.deviceId,
+    state: route.state
   }));
 }
 
 function payload() {
   return { ok: true, routes: currentRoutes() };
+}
+
+function notifyRoutes() {
+  chrome.runtime.sendMessage({
+    target: 'background', type: 'routes-changed', routes: currentRoutes()
+  }).catch(() => {});
 }
